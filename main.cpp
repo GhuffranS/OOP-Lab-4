@@ -1,289 +1,242 @@
 #include <SFML/Graphics.hpp>
 #include <iostream>
 #include <vector>
-#include <random>
-#include <algorithm>
-#include <limits>
+#include <ctime>
+#include <cstdlib>
 
 using namespace sf;
 
-enum Player { NONE = 0, HUMAN = 1, AI = 2 };
-enum Difficulty { EASY = 0, MEDIUM, HARD };
+enum Player { NONE = 0, PLAYER_X, PLAYER_O };
 
-class TicTacToeGame {
-public:
-    TicTacToeGame() {
-        board.resize(9, NONE);
-        currentPlayer = HUMAN;
-        gameOver = false;
-        winner = NONE;
-        difficulty = MEDIUM;
-        rng.seed(std::random_device{}());
-    }
+const int SIZE = 3;
+const int CELL_SIZE = 200;
+const int WINDOW_SIZE = CELL_SIZE * SIZE;
+const int LINE_THICKNESS = 4;
 
-    void reset() {
-        std::fill(board.begin(), board.end(), NONE);
-        currentPlayer = HUMAN;
-        gameOver = false;
-        winner = NONE;
-    }
-
-    void setDifficulty(Difficulty d) {
-        difficulty = d;
-        reset();
-    }
-
-    bool isGameOver() const {
-        return gameOver;
-    }
-
-    Player getWinner() const {
-        return winner;
-    }
-
-    Player getCurrentPlayer() const {
-        return currentPlayer;
-    }
-
-    bool makeMove(int index) {
-        if (index < 0 || index >= 9) return false;
-        if (board[index] != NONE || gameOver) return false;
-
-        board[index] = currentPlayer;
-
-        if (checkWin(currentPlayer)) {
-            gameOver = true;
-            winner = currentPlayer;
-        } else if (isBoardFull()) {
-            gameOver = true;
-            winner = NONE; // draw
-        } else {
-            currentPlayer = (currentPlayer == HUMAN) ? AI : HUMAN;
-        }
-        return true;
-    }
-
-    void aiMove() {
-        if (gameOver || currentPlayer != AI) return;
-
-        int moveIndex = -1;
-
-        if (difficulty == EASY) {
-            moveIndex = pickRandomMove();
-        } else if (difficulty == MEDIUM) {
-            moveIndex = pickMediumMove();
-        } else { // HARD
-            int score = std::numeric_limits<int>::min();
-            for (int i = 0; i < 9; i++) {
-                if (board[i] == NONE) {
-                    board[i] = AI;
-                    int moveScore = minimax(false);
-                    board[i] = NONE;
-                    if (moveScore > score) {
-                        score = moveScore;
-                        moveIndex = i;
-                    }
-                }
-            }
-        }
-
-        makeMove(moveIndex);
-    }
-
-    Player getCell(int index) const {
-        if (index < 0 || index >= 9) return NONE;
-        return board[index];
-    }
-
-private:
-    std::vector<Player> board;
-    Player currentPlayer;
-    bool gameOver;
-    Player winner;
-    Difficulty difficulty;
-
-    std::mt19937 rng;
-
-    bool checkWin(Player p) const {
-        static const int winPositions[8][3] = {
-            {0,1,2},{3,4,5},{6,7,8}, // rows
-            {0,3,6},{1,4,7},{2,5,8}, // columns
-            {0,4,8},{2,4,6}          // diagonals
-        };
-        for (auto& line : winPositions) {
-            if (board[line[0]] == p && board[line[1]] == p && board[line[2]] == p)
-                return true;
-        }
-        return false;
-    }
-
-    bool isBoardFull() const {
-        return std::none_of(board.begin(), board.end(), [](Player p){return p == NONE;});
-    }
-
-    int pickRandomMove() {
-        std::vector<int> emptyCells;
-        for(int i = 0; i < 9; i++) {
-            if(board[i] == NONE) emptyCells.push_back(i);
-        }
-        std::uniform_int_distribution<int> dist(0, emptyCells.size() - 1);
-        return emptyCells[dist(rng)];
-    }
-
-    // Medium difficulty: Try to win, block opponent winning move, else random
-    int pickMediumMove() {
-        // Try to win
-        for(int i=0; i<9; i++) {
-            if(board[i] == NONE) {
-                board[i] = AI;
-                if(checkWin(AI)) {
-                    board[i] = NONE;
-                    return i;
-                }
-                board[i] = NONE;
-            }
-        }
-        // Block human win
-        for(int i=0; i<9; i++) {
-            if(board[i] == NONE) {
-                board[i] = HUMAN;
-                if(checkWin(HUMAN)) {
-                    board[i] = NONE;
-                    return i;
-                }
-                board[i] = NONE;
-            }
-        }
-        // Else random
-        return pickRandomMove();
-    }
-
-    int minimax(bool isMaximizing) {
-        if (checkWin(AI)) return 10;
-        if (checkWin(HUMAN)) return -10;
-        if (isBoardFull()) return 0;
-
-        if (isMaximizing) {
-            int bestScore = std::numeric_limits<int>::min();
-            for (int i = 0; i < 9; i++) {
-                if (board[i] == NONE) {
-                    board[i] = AI;
-                    int score = minimax(false);
-                    board[i] = NONE;
-                    bestScore = std::max(score, bestScore);
-                }
-            }
-            return bestScore;
-        } else {
-            int bestScore = std::numeric_limits<int>::max();
-            for (int i = 0; i < 9; i++) {
-                if (board[i] == NONE) {
-                    board[i] = HUMAN;
-                    int score = minimax(true);
-                    board[i] = NONE;
-                    bestScore = std::min(score, bestScore);
-                }
-            }
-            return bestScore;
-        }
-    }
+struct GameState {
+    int board[SIZE][SIZE] = {0};
+    Player current = PLAYER_X;
+    bool gameOver = false;
+    std::string resultText = "";
+    int difficulty = 1; // 0 = Easy, 1 = Medium, 2 = Hard
+    bool singlePlayer = true;
+    bool selectingMode = true;
 };
 
-// Helper function to draw X and O shapes
-void drawX(RenderWindow& window, Vector2f pos, float size, Color color) {
-    RectangleShape line1(Vector2f(size, size/6));
-    line1.setFillColor(color);
-    line1.setPosition(pos);
-    line1.setRotation(45);
-
-    RectangleShape line2(Vector2f(size, size/6));
-    line2.setFillColor(color);
-    line2.setPosition(pos.x, pos.y + size);
-    line2.setRotation(-45);
-
-    window.draw(line1);
-    window.draw(line2);
+bool isMovesLeft(int board[SIZE][SIZE]) {
+    for (int i = 0; i < SIZE; ++i)
+        for (int j = 0; j < SIZE; ++j)
+            if (board[i][j] == NONE)
+                return true;
+    return false;
 }
 
-void drawO(RenderWindow& window, Vector2f center, float radius, Color color) {
-    CircleShape circle(radius);
-    circle.setOutlineThickness(radius / 6);
-    circle.setOutlineColor(color);
-    circle.setFillColor(Color::Transparent);
-    circle.setPosition(center.x - radius, center.y - radius);
-    window.draw(circle);
+int evaluate(int b[SIZE][SIZE]) {
+    for (int row = 0; row < SIZE; row++)
+        if (b[row][0] == b[row][1] && b[row][1] == b[row][2] && b[row][0] != NONE)
+            return (b[row][0] == PLAYER_O) ? 10 : -10;
+    for (int col = 0; col < SIZE; col++)
+        if (b[0][col] == b[1][col] && b[1][col] == b[2][col] && b[0][col] != NONE)
+            return (b[0][col] == PLAYER_O) ? 10 : -10;
+    if (b[0][0] == b[1][1] && b[1][1] == b[2][2] && b[0][0] != NONE)
+        return (b[0][0] == PLAYER_O) ? 10 : -10;
+    if (b[0][2] == b[1][1] && b[1][1] == b[2][0] && b[0][2] != NONE)
+        return (b[0][2] == PLAYER_O) ? 10 : -10;
+    return 0;
+}
+
+int minimax(int board[SIZE][SIZE], int depth, bool isMax, int alpha, int beta) {
+    int score = evaluate(board);
+    if (score == 10 || score == -10)
+        return score - depth;
+    if (!isMovesLeft(board))
+        return 0;
+
+    if (isMax) {
+        int best = -1000;
+        for (int i = 0; i < SIZE; i++)
+            for (int j = 0; j < SIZE; j++)
+                if (board[i][j] == NONE) {
+                    board[i][j] = PLAYER_O;
+                    best = std::max(best, minimax(board, depth + 1, false, alpha, beta));
+                    board[i][j] = NONE;
+                    alpha = std::max(alpha, best);
+                    if (beta <= alpha) break;
+                }
+        return best;
+    } else {
+        int best = 1000;
+        for (int i = 0; i < SIZE; i++)
+            for (int j = 0; j < SIZE; j++)
+                if (board[i][j] == NONE) {
+                    board[i][j] = PLAYER_X;
+                    best = std::min(best, minimax(board, depth + 1, true, alpha, beta));
+                    board[i][j] = NONE;
+                    beta = std::min(beta, best);
+                    if (beta <= alpha) break;
+                }
+        return best;
+    }
+}
+
+std::pair<int, int> findBestMove(GameState& game) {
+    int bestVal = -1000;
+    std::pair<int, int> bestMove = {-1, -1};
+    for (int i = 0; i < SIZE; i++)
+        for (int j = 0; j < SIZE; j++)
+            if (game.board[i][j] == NONE) {
+                game.board[i][j] = PLAYER_O;
+                int moveVal = minimax(game.board, 0, false, -1000, 1000);
+                game.board[i][j] = NONE;
+                if (moveVal > bestVal) {
+                    bestMove = {i, j};
+                    bestVal = moveVal;
+                }
+            }
+    return bestMove;
+}
+
+void aiMove(GameState& game) {
+    std::pair<int, int> move;
+    if (game.difficulty == 0) {
+        std::vector<std::pair<int, int>> choices;
+        for (int i = 0; i < SIZE; ++i)
+            for (int j = 0; j < SIZE; ++j)
+                if (game.board[i][j] == NONE)
+                    choices.push_back({i, j});
+        move = choices[rand() % choices.size()];
+    } else if (game.difficulty == 1 && rand() % 100 < 50) {
+        move = findBestMove(game);
+    } else {
+        move = findBestMove(game);
+    }
+    game.board[move.first][move.second] = PLAYER_O;
+    game.current = PLAYER_X;
+}
+
+bool checkWin(GameState& game, Player player) {
+    int p = player;
+    for (int i = 0; i < SIZE; i++)
+        if ((game.board[i][0] == p && game.board[i][1] == p && game.board[i][2] == p) ||
+            (game.board[0][i] == p && game.board[1][i] == p && game.board[2][i] == p))
+            return true;
+    if ((game.board[0][0] == p && game.board[1][1] == p && game.board[2][2] == p) ||
+        (game.board[0][2] == p && game.board[1][1] == p && game.board[2][0] == p))
+        return true;
+    return false;
+}
+
+void checkGameOver(GameState& game) {
+    if (checkWin(game, PLAYER_X)) {
+        game.gameOver = true;
+        game.resultText = "Player X Wins!";
+    } else if (checkWin(game, PLAYER_O)) {
+        game.gameOver = true;
+        game.resultText = game.singlePlayer ? "AI Wins!" : "Player O Wins!";
+    } else if (!isMovesLeft(game.board)) {
+        game.gameOver = true;
+        game.resultText = "Draw!";
+    }
+}
+
+void resetGame(GameState& game) {
+    std::fill(&game.board[0][0], &game.board[0][0] + SIZE * SIZE, NONE);
+    game.current = PLAYER_X;
+    game.gameOver = false;
+    game.resultText = "";
+}
+
+void drawMenu(RenderWindow& window, Font& font, GameState& game) {
+    window.clear(Color::White);
+
+    Text title("Tic Tac Toe", font, 48);
+    title.setPosition(100, 40);
+    title.setFillColor(Color::Black);
+    window.draw(title);
+
+    Text p1("Single Player", font, 36);
+    p1.setPosition(100, 150);
+    p1.setFillColor(Color::Black);
+    window.draw(p1);
+
+    Text p2("Two Player", font, 36);
+    p2.setPosition(100, 210);
+    p2.setFillColor(Color::Black);
+    window.draw(p2);
+
+    Text d0("Easy", font, 30);
+    d0.setPosition(100, 280);
+    d0.setFillColor(Color::Black);
+    window.draw(d0);
+
+    Text d1("Medium", font, 30);
+    d1.setPosition(100, 320);
+    d1.setFillColor(Color::Black);
+    window.draw(d1);
+
+    Text d2("Hard", font, 30);
+    d2.setPosition(100, 360);
+    d2.setFillColor(Color::Black);
+    window.draw(d2);
+
+    window.display();
+}
+
+void drawBoard(RenderWindow& window, GameState& game, Font& font) {
+    window.clear(Color::White);
+    for (int i = 1; i < SIZE; ++i) {
+        RectangleShape lineH(Vector2f(WINDOW_SIZE, LINE_THICKNESS));
+        lineH.setPosition(0, i * CELL_SIZE);
+        lineH.setFillColor(Color::Black);
+        window.draw(lineH);
+
+        RectangleShape lineV(Vector2f(LINE_THICKNESS, WINDOW_SIZE));
+        lineV.setPosition(i * CELL_SIZE, 0);
+        lineV.setFillColor(Color::Black);
+        window.draw(lineV);
+    }
+
+    Text xText("X", font, 120);
+    xText.setFillColor(Color::Red);
+    Text oText("O", font, 120);
+    oText.setFillColor(Color::Blue);
+
+    for (int i = 0; i < SIZE; i++)
+        for (int j = 0; j < SIZE; j++) {
+            if (game.board[i][j] == PLAYER_X) {
+                xText.setPosition(j * CELL_SIZE + 40, i * CELL_SIZE + 10);
+                window.draw(xText);
+            } else if (game.board[i][j] == PLAYER_O) {
+                oText.setPosition(j * CELL_SIZE + 40, i * CELL_SIZE + 10);
+                window.draw(oText);
+            }
+        }
+
+    if (game.gameOver) {
+        RectangleShape overlay(Vector2f(WINDOW_SIZE, 80));
+        overlay.setPosition(0, WINDOW_SIZE / 2 - 40);
+        overlay.setFillColor(Color(0, 0, 0, 180));
+        window.draw(overlay);
+
+        Text text(game.resultText + " - Press R to Restart", font, 28);
+        text.setFillColor(Color::White);
+        text.setPosition(20, WINDOW_SIZE / 2 - 20);
+        window.draw(text);
+    }
+
+    window.display();
 }
 
 int main() {
-    const int windowWidth = 600;
-    const int windowHeight = 700;
-    RenderWindow window(VideoMode(windowWidth, windowHeight), "TicTacToe - SFML");
-
-    TicTacToeGame game;
-
-    // Board settings
-    const int gridSize = 3;
-    const float cellSize = 180.f;
-    const float boardStartX = (windowWidth - cellSize * gridSize) / 2.f;
-    const float boardStartY = 100.f;
+    srand(static_cast<unsigned>(time(0)));
+    RenderWindow window(VideoMode(WINDOW_SIZE, WINDOW_SIZE), "Tic Tac Toe", Style::Close);
+    GameState game;
 
     Font font;
-    if (!font.loadFromFile("Arial.ttf")) {
-        // Use a default SFML font fallback if Arial not found
-        std::cerr << "Failed to load font Arial.ttf. Please put Arial.ttf in same folder or change font file path." << std::endl;
-        return -1;
+    if (!font.loadFromFile("arial.ttf")) {
+        std::cerr << "Font file not found.\n";
+        return 1;
     }
-
-    // Buttons for difficulty and restart
-    struct Button {
-        RectangleShape rect;
-        Text text;
-        Difficulty diff; // only valid for difficulty buttons
-        bool isRestart;
-    };
-
-    std::vector<Button> buttons;
-    const float btnWidth = 140.f;
-    const float btnHeight = 40.f;
-    const float btnMargin = 20.f;
-    Vector2f btnStart(windowWidth / 2.f - 1.5f * (btnWidth + btnMargin), 20.f);
-
-    std::string diffs[] = {"Easy", "Medium", "Hard"};
-    for (int i = 0; i < 3; i++) {
-        Button b;
-        b.rect = RectangleShape(Vector2f(btnWidth, btnHeight));
-        b.rect.setPosition(btnStart.x + i * (btnWidth + btnMargin), btnStart.y);
-        b.rect.setFillColor(Color(200, 200, 200));
-        b.rect.setOutlineColor(Color::Black);
-        b.rect.setOutlineThickness(2.f);
-        b.diff = static_cast<Difficulty>(i);
-        b.isRestart = false;
-        b.text = Text(diffs[i], font, 20);
-        b.text.setFillColor(Color::Black);
-        FloatRect textBounds = b.text.getLocalBounds();
-        b.text.setPosition(
-            b.rect.getPosition().x + (btnWidth - textBounds.width) / 2 - textBounds.left,
-            b.rect.getPosition().y + (btnHeight - textBounds.height) / 2 - textBounds.top
-        );
-        buttons.push_back(b);
-    }
-
-    // Restart button
-    Button restartBtn;
-    restartBtn.rect = RectangleShape(Vector2f(btnWidth, btnHeight));
-    restartBtn.rect.setPosition(btnStart.x + 3 * (btnWidth + btnMargin), btnStart.y);
-    restartBtn.rect.setFillColor(Color(180, 50, 50));
-    restartBtn.rect.setOutlineColor(Color::Black);
-    restartBtn.rect.setOutlineThickness(2.f);
-    restartBtn.isRestart = true;
-    restartBtn.text = Text("Restart", font, 20);
-    restartBtn.text.setFillColor(Color::White);
-    FloatRect textBounds = restartBtn.text.getLocalBounds();
-    restartBtn.text.setPosition(
-        restartBtn.rect.getPosition().x + (btnWidth - textBounds.width) / 2 - textBounds.left,
-        restartBtn.rect.getPosition().y + (btnHeight - textBounds.height) / 2 - textBounds.top
-    );
-    buttons.push_back(restartBtn);
 
     while (window.isOpen()) {
         Event event;
@@ -291,125 +244,45 @@ int main() {
             if (event.type == Event::Closed)
                 window.close();
 
-            if (event.type == Event::MouseButtonPressed && event.mouseButton.button == Mouse::Left) {
-                Vector2f mousePos = window.mapPixelToCoords(Mouse::getPosition(window));
-
-                // Check buttons
-                for (auto& b : buttons) {
-                    if (b.rect.getGlobalBounds().contains(mousePos)) {
-                        if (b.isRestart) {
-                            game.reset();
-                        } else {
-                            game.setDifficulty(b.diff);
-                        }
-                    }
+            if (game.selectingMode) {
+                if (event.type == Event::MouseButtonPressed) {
+                    int y = event.mouseButton.y;
+                    if (y >= 150 && y <= 190) game.singlePlayer = true;
+                    else if (y >= 210 && y <= 250) game.singlePlayer = false;
+                    else if (y >= 280 && y <= 310) game.difficulty = 0;
+                    else if (y >= 320 && y <= 350) game.difficulty = 1;
+                    else if (y >= 360 && y <= 390) game.difficulty = 2;
+                    if (y >= 150 && y <= 390) game.selectingMode = false;
                 }
-
-                // If game not over and current player is human, register moves
-                if (!game.isGameOver() && game.getCurrentPlayer() == HUMAN) {
-                    // Check board cells
-                    for (int i = 0; i < 9; i++) {
-                        int row = i / 3, col = i % 3;
-                        FloatRect cellRect(boardStartX + col * cellSize, boardStartY + row * cellSize, cellSize, cellSize);
-                        if (cellRect.contains(mousePos)) {
-                            game.makeMove(i);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // AI move if needed
-        if (!game.isGameOver() && game.getCurrentPlayer() == AI) {
-            game.aiMove();
-        }
-
-        // Drawing
-        window.clear(Color(240, 240, 240));
-
-        // Draw buttons
-        for (auto& b : buttons) {
-            // Highlight selected difficulty
-            if (!b.isRestart && b.diff == game.getCurrentPlayer() && game.isGameOver()) {
-                b.rect.setFillColor(Color(150, 150, 150));
-            } else if (!b.isRestart && b.diff == game.getCurrentPlayer()) {
-                b.rect.setFillColor(Color(100, 180, 250));
-            } else if (!b.isRestart && b.diff == game.getCurrentPlayer()) {
-                b.rect.setFillColor(Color(200, 200, 200));
-            }
-            if (!b.isRestart && b.diff == game.getCurrentPlayer()) {
-                b.rect.setFillColor(Color(100, 180, 250));
-            } else if (!b.isRestart) {
-                b.rect.setFillColor(Color(200,200,200));
-            }
-
-            window.draw(b.rect);
-            window.draw(b.text);
-        }
-
-        // Draw board grid lines
-        Color gridColor(50, 50, 50);
-        for(int i=1; i<3; i++) {
-            // vertical lines
-            Vertex line1[] =
-            {
-                Vertex(Vector2f(boardStartX + i*cellSize, boardStartY), gridColor),
-                Vertex(Vector2f(boardStartX + i*cellSize, boardStartY + gridSize*cellSize), gridColor)
-            };
-            window.draw(line1, 2, Lines);
-
-            // horizontal lines
-            Vertex line2[] =
-            {
-                Vertex(Vector2f(boardStartX, boardStartY + i*cellSize), gridColor),
-                Vertex(Vector2f(boardStartX + gridSize*cellSize, boardStartY + i*cellSize), gridColor)
-            };
-            window.draw(line2, 2, Lines);
-        }
-
-        // Draw X and O in cells
-        for(int i=0; i<9; i++) {
-            Player p = game.getCell(i);
-            if(p == NONE) continue;
-
-            int row = i/3, col = i%3;
-            float centerX = boardStartX + col*cellSize + cellSize/2.f;
-            float centerY = boardStartY + row*cellSize + cellSize/2.f;
-
-            if(p == HUMAN) {
-                drawX(window, Vector2f(centerX - cellSize/3, centerY - cellSize/3), cellSize*2/3, Color::Red);
-            } else if (p == AI) {
-                drawO(window, Vector2f(centerX, centerY), cellSize/3, Color::Blue);
-            }
-        }
-
-        // Draw game status text
-        Text statusText("", font, 28);
-        statusText.setFillColor(Color::Black);
-
-        if (game.isGameOver()) {
-            Player win = game.getWinner();
-            if (win == HUMAN) {
-                statusText.setString("You Win!");
-            } else if (win == AI) {
-                statusText.setString("You Lose");
             } else {
-                statusText.setString("Draw!");
+                if (event.type == Event::MouseButtonPressed && !game.gameOver) {
+                    int row = event.mouseButton.y / CELL_SIZE;
+                    int col = event.mouseButton.x / CELL_SIZE;
+                    if (game.board[row][col] == NONE) {
+                        game.board[row][col] = game.current;
+                        checkGameOver(game);
+                        if (!game.gameOver) {
+                            if (game.singlePlayer) {
+                                game.current = PLAYER_O;
+                                aiMove(game);
+                                checkGameOver(game);
+                            } else {
+                                game.current = (game.current == PLAYER_X) ? PLAYER_O : PLAYER_X;
+                            }
+                        }
+                    }
+                }
+                if (event.type == Event::KeyPressed && event.key.code == Keyboard::R) {
+                    resetGame(game);
+                    game.selectingMode = true;
+                }
             }
-        } else {
-            if (game.getCurrentPlayer() == HUMAN)
-                statusText.setString("Your turn (X)");
-            else
-                statusText.setString("AI thinking (O)...");
         }
-        FloatRect textBounds = statusText.getLocalBounds();
-        statusText.setPosition((windowWidth - textBounds.width) / 2.f, boardStartY + gridSize*cellSize + 20);
-        window.draw(statusText);
-
-        window.display();
+        if (game.selectingMode)
+            drawMenu(window, font, game);
+        else
+            drawBoard(window, game, font);
     }
 
     return 0;
 }
-
